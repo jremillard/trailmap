@@ -1,9 +1,15 @@
 #!/usr/bin/env python
 
 from mapnik import *
+import time
+import traceback
+import sys
 
-town_to_map = 'Groton'
-backgroundColor = Color('#E0E0E0')
+
+townToMap = 'Groton'
+backgroundColor = Color('white')
+outOfTownColor = Color('#B0B0B0')
+
 trailColor = Color( "green")
 colorOfWater = Color('#BBCCFF')
 
@@ -11,7 +17,6 @@ colorOfWater = Color('#BBCCFF')
 # figure out tiles
 # key
 # render loop trail differently
-# show a bit of land around groton
 
 def makeTrailStyle(m,mapScale) :
 
@@ -310,20 +315,18 @@ def makeWaterStyle(m,mapScale) :
 def makeTrailLayer(m) :
   trails = Layer('trails')
 
-  query = """ (
-    select 
-      ST_Intersection(planet_osm_polygon.way,planet_osm_line.way) as tway, 
-      planet_osm_line.* 
-     from 
-      planet_osm_line, planet_osm_polygon 
+  query = """
+    (select
+      *
+    from
+      planet_osm_line
     where 
-      ST_Intersects(planet_osm_polygon.way,planet_osm_line.way) and 
-      planet_osm_polygon.name = 'Groton' and 
-      (planet_osm_line.highway = 'path' or planet_osm_line.highway = 'track' or planet_osm_line.highway = 'cycleway')
-    ) as foo
+      planet_osm_line.highway = 'path' or 
+      planet_osm_line.highway = 'track' or 
+      planet_osm_line.highway = 'cycleway') as foo
    """
 
-  trails.datasource = PostGIS(dbname='gis',table=query,geometry_field='tway',geometry_table='foo',extent_from_subquery=1)
+  trails.datasource = PostGIS(dbname='gis',table=query,geometry_field='way',geometry_table='foo',extent_from_subquery=1)
   trails.styles.append('trails')
   trails.styles.append('trails_l')
   m.layers.append(trails)
@@ -333,15 +336,13 @@ def makePowerLineLayer(m) :
 
   query = """ (
     select 
-      ST_Intersection(planet_osm_polygon.way,planet_osm_line.way) as tway, 
+      planet_osm_line.way as tway, 
       'Power Lines' as shortname,
       planet_osm_line.* 
      from 
-      planet_osm_line, planet_osm_polygon 
+      planet_osm_line
     where 
-      ST_Intersects(planet_osm_polygon.way,planet_osm_line.way) and 
-      planet_osm_polygon.name = 'Groton' and 
-      (planet_osm_line.power = 'line')
+      planet_osm_line.power = 'line'
     ) as foo
    """
 
@@ -353,22 +354,18 @@ def makePowerLineLayer(m) :
 def makeRoadLayer(m) :
   roads = Layer('roads')
 
-  query = """ (
-    select 
-      ST_Intersection(planet_osm_polygon.way,planet_osm_line.way) as tway, 
-      planet_osm_line.* 
-     from 
-      planet_osm_line, planet_osm_polygon 
+  query = """ 
+    (select 
+      *
+    from
+      planet_osm_line
     where 
-      ST_Intersects(planet_osm_polygon.way,planet_osm_line.way) and 
-      planet_osm_polygon.name = 'Groton' and 
       planet_osm_line.highway != '' and 
       planet_osm_line.highway != 'path' and 
-      planet_osm_line.highway != 'track' 
-    ) as foo
+      planet_osm_line.highway != 'track' ) as foo
    """
 
-  roads.datasource = PostGIS(dbname='gis',table=query,geometry_field='tway', extent_from_subquery=1);
+  roads.datasource = PostGIS(dbname='gis',table=query,geometry_field='way',geometry_table='foo',extent_from_subquery=1);
   roads.styles.append('roads')
   roads.styles.append('roads_l')
   m.layers.append(roads)
@@ -378,25 +375,21 @@ def makeCloseRoadsLayer(m) :
 
   query = """ (
     select distinct
-      ST_Intersection(town.way,road.way) as way,
+      road.way as way,
       road.name,
       road.highway
      from 
       planet_osm_line as road, 
-      planet_osm_line as trail, 
-      planet_osm_polygon as town
+      planet_osm_line as trail
     where 
       ST_Distance(road.way,trail.way) < 500 and 
-      ST_Intersects(town.way,road.way) and 
-      ST_Intersects(town.way,trail.way) and
-      town.name = 'Groton' and 
       (trail.highway = 'track' or trail.highway = 'path' ) and
       road.highway = 'residential' and 
       road.name != ''
     ) as foo
    """
 
-  roads.datasource = PostGIS(dbname='gis',table=query,geometry_field='way', extent_from_subquery=1);
+  roads.datasource = PostGIS(dbname='gis',table=query,geometry_field='way',extent_from_subquery=1);
   roads.styles.append('roads_close')
   m.layers.append(roads)
 
@@ -404,20 +397,19 @@ def makeRiverLayer(m) :
 
   river = Layer('river')
 
+# ST_Intersection(town.way,line.way) as tway, 
   query = """ (
     select 
-      ST_Intersection(town.way,line.way) as tway, 
+      line.way as tway, 
       line.* 
      from 
-      planet_osm_line as line, planet_osm_polygon as town
+      planet_osm_line as line
     where 
-      ST_Intersects(town.way,line.way) and 
-      town.name = 'Groton' and 
       line.waterway != ''
     ) as foo
    """
 
-  river.datasource = PostGIS(dbname='gis',table=query,geometry_field='tway', extent_from_subquery=1);
+  river.datasource = PostGIS(dbname='gis',table=query,geometry_field='tway',extent_from_subquery=1);
   river.styles.append('river')
   m.layers.append(river) 
 
@@ -427,18 +419,18 @@ def makeWaterLayer(m) :
 
   query = """ (
     select 
-      ST_Intersection(town.way,poly.way) as tway, 
+      poly.way as tway, 
       poly.* 
      from 
-      planet_osm_polygon as poly, planet_osm_polygon as town
+      planet_osm_polygon as poly
     where 
-      ST_Intersects(town.way,poly.way) and 
-      town.name = 'Groton' and 
-      (poly.natural = 'water' or poly.natural = 'wetland' or poly.waterway = 'riverbank' )
+      poly.natural = 'water' or 
+      poly.natural = 'wetland' or 
+      poly.waterway = 'riverbank'
     ) as foo
    """
 
-  water.datasource = PostGIS(dbname='gis',table=query,geometry_field='tway', extent_from_subquery=1);
+  water.datasource = PostGIS(dbname='gis',table=query,geometry_field='tway',extent_from_subquery=1);
   water.styles.append('water')
   m.layers.append(water) 
 
@@ -447,43 +439,41 @@ def makeElevationLayer(m) :
 
   query = """ (
     select 
-      ST_Intersection(town.way,contours.the_geom) as contour, 
-      ST_Length( ST_Intersection(town.way,contours.the_geom) ) as length,
+      contours.the_geom as contour, 
+      ST_Length( contours.the_geom ) as length,
       (contours.elev * 3.28084)::integer % 50 as elevation_major,
       (contours.elev * 3.28084)::integer as elevation_ft
      from 
-      contours, planet_osm_polygon as town
-    where 
-      ST_Intersects(town.way,contours.the_geom) and 
-      town.name = 'Groton'
+      contours
     ) as foo
    """
 
-  elev.datasource = PostGIS(dbname='gis',table=query,geometry_field='contour', extent_from_subquery=1);
+  elev.datasource = PostGIS(dbname='gis',table=query,geometry_field='contour',extent_from_subquery=1);
   elev.styles.append('elevation')
   m.layers.append(elev)
 
 def makeConservationLandDataSource() :
 
-  query = """ (
+  query = (""" (
     select 
-      ST_Intersection(town.way,poly.way) as tway, 
-      ST_Area( ST_Intersection(town.way,poly.way)) as conservation_area,
+      ST_Intersection(town.way,poly.way) as tway,  
+      ST_Area( poly.way) as conservation_area,
       poly.* 
      from 
-      planet_osm_polygon as poly, planet_osm_polygon as town
+      planet_osm_polygon as town,
+      planet_osm_polygon as poly
     where 
       ST_Intersects(town.way,poly.way) and 
-      town.name = 'Groton' and 
+      town.name = '%s' and
       (poly.landuse = 'conservation' or 
-       poly.landuse = 'forest' or 
-       poly.leisure = 'recreation_ground' or 
-       poly.leisure = 'nature_reserve' or 
-       poly.leisure = 'park' )
+      poly.landuse = 'forest' or 
+      poly.leisure = 'recreation_ground' or 
+      poly.leisure = 'nature_reserve' or 
+      poly.leisure = 'park' )
     ) as foo
-   """
+   """) % ( townToMap)
 
-  return PostGIS(dbname='gis',table=query,geometry_field='tway', extent_from_subquery=1);
+  return PostGIS(dbname='gis',table=query,geometry_field='tway',extent_from_subquery=1);
 
 
 def makeConservationLandLayer(m) :
@@ -503,21 +493,23 @@ def makeConservationLabelLayer(m) :
 def makeBuildingLayer(m) :
   conservation_ = Layer('building')
 
-  query = """ (
+  query = (""" (
     select 
-      ST_Intersection(town.way,poly.way) as tway, 
-      ST_Area( ST_Intersection(town.way,poly.way)) as conservation_area,
+      poly.way as tway, 
+      ST_Area( poly.way) as conservation_area,
       poly.* 
      from 
-      planet_osm_polygon as poly, planet_osm_polygon as town
+      planet_osm_polygon as poly,
+      planet_osm_polygon as town
     where 
       ST_Intersects(town.way,poly.way) and 
-      town.name = 'Groton' and 
-      (poly.building != '' or poly.leisure = 'pitch')
+      town.name = '%s' and
+      (poly.building != '' or 
+       poly.leisure = 'pitch')
     ) as foo
-   """
+   """) % (townToMap)
 
-  conservation_.datasource = PostGIS(dbname='gis',table=query,geometry_field='tway', extent_from_subquery=1);
+  conservation_.datasource = PostGIS(dbname='gis',table=query,geometry_field='tway',extent_from_subquery=1);
   conservation_.styles.append('building')
   m.layers.append(conservation_)
 
@@ -537,7 +529,7 @@ def makeParkingLayer(m) :
     ) as foo
    """
 
-  parking.datasource = PostGIS(dbname='gis',table=query,geometry_field='way', extent_from_subquery=1);
+  parking.datasource = PostGIS(dbname='gis',table=query,geometry_field='way',extent_from_subquery=1);
   parking.styles.append('parking')
   parking.styles.append('parking_p')
   m.layers.append(parking)
@@ -550,14 +542,11 @@ def makePointLayer(m) :
     select 
       point.*
      from 
-      planet_osm_point point,
-      planet_osm_polygon as town
+      planet_osm_point as point
     where 
-      ST_Intersects(town.way,point.way) and 
-      town.name = 'Groton' and 
-      (point.barrier = 'gate' or
-       point.ford = 'yes' or 
-       point.tourism = 'camp_site')
+      point.barrier = 'gate' or
+      point.ford = 'yes' or 
+      point.tourism = 'camp_site'
     ) as foo
    """
 
@@ -568,15 +557,12 @@ def makePointLayer(m) :
 def makeTown(m) :
   town = Layer('town')
 
-  query = """ (
-    select 
-      *
-     from 
-      planet_osm_polygon 
-    where 
-      planet_osm_polygon.name = 'Groton' 
-    ) as foo
-   """
+  query = ("( " 
+    "select * " 
+    "from planet_osm_polygon " 
+    "where " 
+    "planet_osm_polygon.name = '" + townToMap + "' " 
+    ") as foo")
 
   town.datasource = PostGIS(dbname='gis',table=query,geometry_field='way',extent_from_subquery=1);
   town.styles.append('town')
@@ -584,16 +570,20 @@ def makeTown(m) :
   m.zoom_to_box(town.envelope())
 
 
-for mapScale in range(3,4) :
+try:
+  start = time.time()
+  mapScale = 3
+  lineScale = 2;
 
   # Map
-  widthInPixels = 4000*mapScale;
+  dpi = 300
+  widthInInches = 36
+  widthInPixels = widthInInches * dpi
   m = Map(widthInPixels,int(widthInPixels*0.8))
+  m.background = outOfTownColor
 
-  # Styles
-  lineScale = mapScale;
-  if ( lineScale > 2 ) : 
-    lineScale = 2;
+# Styles
+
   makeTrailStyle(m,lineScale)
   makeRoadStyle(m,lineScale)
   makeTownStyle(m,mapScale)
@@ -623,8 +613,15 @@ for mapScale in range(3,4) :
   makeConservationLabelLayer(m)
 
   # Render
-  render_to_file(m, town_to_map + '_' + str(mapScale) + 'x.png')
-  if( mapScale == 1 ) : 
-    render_to_file(m, town_to_map + '.pdf');
+  render_to_file(m, townToMap + '_' + str(mapScale) + 'x.png')
+
+  elapsed = (time.time() - start)
+
+  print ("render time %1.1f (s)") % (elapsed)
+
+except Exception as err:
+    sys.stderr.write(repr(err) + "\n")
+    traceback.print_exc(file = sys.stderr)
+    sys.exit(1)
 
 
